@@ -1,0 +1,30 @@
+# Mini OpenClaw Dashboard 依赖
+
+# 核心依赖
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.0.0
+
+# LLM API 客户端
+openai>=1.0.0
+
+# 搜索工具
+duckduckgo-search>=3.9.0
+
+# HTTP 请求
+requests>=2.31.0
+
+# 定时任务（cron 表达式解析）
+croniter>=2.0.0
+
+# 系统监控
+psutil>=5.9.0
+
+# 二维码生成（可选）
+# qrcode[pil]>=7.4.0
+
+# 浏览器控制（可选）
+# playwright>=1.40.0
+
+# 股票工具（可选）
+# yfinance>=0.2.0

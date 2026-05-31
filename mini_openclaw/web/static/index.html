@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mini OpenClaw Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg: #0a0e1a; --surface: #111827; --surface-hover: #1f2937;
+            --border: #1f2937; --text: #e5e7eb; --text-secondary: #9ca3af;
+            --accent: #f59e0b; --accent-hover: #d97706; --success: #10b981;
+            --error: #ef4444; --info: #3b82f6; --warning: #f59e0b;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg); color: var(--text); height: 100vh; display: flex; overflow: hidden;
+        }
+        .sidebar {
+            width: 64px; background: var(--surface); border-right: 1px solid var(--border);
+            display: flex; flex-direction: column; align-items: center; padding: 16px 0; flex-shrink: 0;
+            transition: width 0.3s;
+        }
+        .sidebar.expanded { width: 200px; }
+        .sidebar-logo {
+            width: 40px; height: 40px; background: var(--accent); border-radius: 10px;
+            display: flex; align-items: center; justify-content: center; font-size: 20px; margin-bottom: 24px;
+            cursor: pointer;
+        }
+        .nav-item {
+            width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center;
+            justify-content: center; cursor: pointer; margin-bottom: 8px; transition: all 0.2s;
+            color: var(--text-secondary); font-size: 20px; position: relative;
+        }
+        .nav-item:hover, .nav-item.active { background: var(--surface-hover); color: var(--accent); }
+        .nav-item .label { display: none; position: absolute; left: 56px; white-space: nowrap; font-size: 14px; }
+        .sidebar.expanded .nav-item { width: calc(100% - 16px); justify-content: flex-start; padding-left: 16px; }
+        .sidebar.expanded .nav-item .label { display: block; position: static; margin-left: 12px; }
+        .sidebar.expanded .nav-item .icon { width: 24px; text-align: center; }
+        .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .topbar {
+            height: 56px; background: var(--surface); border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; justify-content: space-between; padding: 0 24px;
+        }
+        .topbar h1 { font-size: 18px; font-weight: 600; }
+        .topbar .status {
+            display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary);
+        }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .status-dot.online { background: var(--success); box-shadow: 0 0 8px var(--success); }
+        .status-dot.offline { background: var(--error); }
+        .status-dot.simulated { background: var(--warning); }
+        .content { flex: 1; overflow-y: auto; padding: 24px; }
+        .page { display: none; }
+        .page.active { display: block; }
+        .dashboard-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px;
+            margin-bottom: 24px;
+        }
+        .card {
+            background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+            padding: 20px; transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .card:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
+        .card-header {
+            display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;
+        }
+        .card-title { font-size: 14px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; }
+        .card-value { font-size: 32px; font-weight: 700; color: var(--accent); }
+        .card-sub { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+        .chart-container {
+            background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+            padding: 20px; margin-bottom: 20px;
+        }
+        .chart-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; }
+        .data-table { width: 100%; border-collapse: collapse; }
+        .data-table th, .data-table td {
+            padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border);
+            font-size: 14px;
+        }
+        .data-table th { color: var(--text-secondary); font-weight: 500; font-size: 12px; text-transform: uppercase; }
+        .data-table tr:hover { background: var(--surface-hover); }
+        .badge {
+            display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 500;
+        }
+        .badge-success { background: rgba(16,185,129,0.15); color: var(--success); }
+        .badge-warning { background: rgba(245,158,11,0.15); color: var(--warning); }
+        .badge-error { background: rgba(239,68,68,0.15); color: var(--error); }
+        .badge-info { background: rgba(59,130,246,0.15); color: var(--info); }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 6px; }
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+            padding: 10px 14px; color: var(--text); font-size: 14px; outline: none;
+        }
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: var(--accent); }
+        .btn {
+            padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer; font-size: 14px;
+            font-weight: 500; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px;
+        }
+        .btn-primary { background: var(--accent); color: #000; }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-danger { background: var(--error); color: white; }
+        .btn-sm { padding: 6px 12px; font-size: 12px; }
+        .chat-container { display: flex; height: calc(100vh - 56px); }
+        .chat-sidebar {
+            width: 260px; background: var(--surface); border-right: 1px solid var(--border);
+            display: flex; flex-direction: column;
+        }
+        .chat-main { flex: 1; display: flex; flex-direction: column; }
+        .chat-messages { flex: 1; overflow-y: auto; padding: 20px; }
+        .chat-input-area {
+            padding: 16px 20px; border-top: 1px solid var(--border); display: flex; gap: 12px;
+        }
+        .chat-input {
+            flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 12px;
+            padding: 12px 16px; color: var(--text); font-size: 14px; resize: none; outline: none;
+            min-height: 48px; max-height: 120px; font-family: inherit;
+        }
+        .chat-input:focus { border-color: var(--accent); }
+        .message { max-width: 80%; padding: 12px 16px; border-radius: 12px; margin-bottom: 12px; line-height: 1.6; }
+        .message.user { margin-left: auto; background: var(--accent); color: #000; }
+        .message.assistant { background: var(--surface); border: 1px solid var(--border); }
+        .message .meta { font-size: 11px; color: var(--text-secondary); margin-bottom: 4px; }
+        .config-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px;
+        }
+        .config-section {
+            background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 24px;
+        }
+        .config-section h3 { font-size: 16px; margin-bottom: 20px; display: flex; align-items: center; gap: 8px; }
+        .toggle {
+            position: relative; width: 44px; height: 24px; background: var(--border); border-radius: 12px;
+            cursor: pointer; transition: background 0.2s;
+        }
+        .toggle.active { background: var(--accent); }
+        .toggle::after {
+            content: ''; position: absolute; width: 20px; height: 20px; background: white;
+            border-radius: 50%; top: 2px; left: 2px; transition: transform 0.2s;
+        }
+        .toggle.active::after { transform: translateX(20px); }
+        @media (max-width: 768px) {
+            .sidebar { width: 0; overflow: hidden; }
+            .sidebar.expanded { width: 200px; }
+            .dashboard-grid { grid-template-columns: 1fr; }
+            .config-grid { grid-template-columns: 1fr; }
+            .chat-sidebar { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-logo" onclick="toggleSidebar()">🦞</div>
+        <div class="nav-item active" onclick="showPage('dashboard')" title="仪表盘">
+            <span class="icon">📊</span><span class="label">仪表盘</span>
+        </div>
+        <div class="nav-item" onclick="showPage('chat')" title="对话">
+            <span class="icon">💬</span><span class="label">对话</span>
+        </div>
+        <div class="nav-item" onclick="showPage('sessions')" title="会话">
+            <span class="icon">📁</span><span class="label">会话</span>
+        </div>
+        <div class="nav-item" onclick="showPage('tools')" title="工具">
+            <span class="icon">🔧</span><span class="label">工具</span>
+        </div>
+        <div class="nav-item" onclick="showPage('sandbox')" title="沙盒">
+            <span class="icon">📦</span><span class="label">沙盒</span>
+        </div>
+        <div class="nav-item" onclick="showPage('tasks')" title="定时任务">
+            <span class="icon">⏰</span><span class="label">定时任务</span>
+        </div>
+        <div class="nav-item" onclick="showPage('files')" title="文件浏览">
+            <span class="icon">📂</span><span class="label">文件浏览</span>
+        </div>
+        <div class="nav-item" onclick="showPage('utils')" title="实用工具">
+            <span class="icon">🧰</span><span class="label">实用工具</span>
+        </div>
+        <div class="nav-item" onclick="showPage('config')" title="配置">
+            <span class="icon">⚙️</span><span class="label">配置</span>
+        </div>
+    </div>
+
+    <div class="main">
+        <div class="topbar">
+            <h1 id="pageTitle">仪表盘</h1>
+            <div class="status">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusText">检查中...</span>
+                <span id="modelInfo"></span>
+            </div>
+        </div>
+
+        <div class="content">
+            <div class="page active" id="page-dashboard">
+                <div class="dashboard-grid">
+                    <div class="card">
+                        <div class="card-header"><span class="card-title">活跃会话</span><span style="font-size:24px">💬</span></div>
+                        <div class="card-value" id="dashSessions">0</div>
+                        <div class="card-sub">总对话数</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header"><span class="card-title">已注册工具</span><span style="font-size:24px">🔧</span></div>
+                        <div class="card-value" id="dashTools">0</div>
+                        <div class="card-sub">可用功能</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header"><span class="card-title">全局记忆</span><span style="font-size:24px">🧠</span></div>
+                        <div class="card-value" id="dashMemory">0</div>
+                        <div class="card-sub">存储条目</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header"><span class="card-title">学习模式</span><span style="font-size:24px">📚</span></div>
+                        <div class="card-value" id="dashLearning">0</div>
+                        <div class="card-sub">已学习模式</div>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <div class="chart-title">系统状态</div>
+                    <div id="systemStatus">
+                        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;text-align:center">
+                            <div>
+                                <div style="font-size:32px;font-weight:700;color:var(--accent)" id="cpuUsage">--%</div>
+                                <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">CPU 使用率</div>
+                            </div>
+                            <div>
+                                <div style="font-size:32px;font-weight:700;color:var(--info)" id="memUsage">--%</div>
+                                <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">内存使用率</div>
+                            </div>
+                            <div>
+                                <div style="font-size:32px;font-weight:700;color:var(--success)" id="diskUsage">--%</div>
+                                <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">磁盘使用率</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <div class="chart-title">定时任务</div>
+                    <table class="data-table" id="dashTasksTable">
+                        <thead><tr><th>任务名</th><th>表达式</th><th>状态</th><th>执行次数</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="page" id="page-chat">
+                <div class="chat-container">
+                    <div class="chat-sidebar">
+                        <div style="padding:16px;border-bottom:1px solid var(--border)">
+                            <button class="btn btn-primary" style="width:100%" onclick="newChat()">+ 新会话</button>
+                        </div>
+                        <div id="chatSessionList" style="flex:1;overflow-y:auto;padding:8px"></div>
+                    </div>
+                    <div class="chat-main">
+                        <div class="chat-messages" id="chatMessages"></div>
+                        <div class="chat-input-area">
+                            <textarea class="chat-input" id="chatInput" placeholder="输入指令..." rows="1"></textarea>
+                            <button class="btn btn-primary" onclick="sendChat()">发送</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="page" id="page-sessions">
+                <div class="chart-container">
+                    <div class="chart-title">会话列表</div>
+                    <table class="data-table" id="sessionsTable">
+                        <thead><tr><th>会话ID</th><th>消息数</th><th>记忆数</th><th>文件数</th><th>创建时间</th><th>操作</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="page" id="page-tools">
+                <div class="chart-container">
+                    <div class="chart-title">已注册工具</div>
+                    <table class="data-table" id="toolsTable">
+                        <thead><tr><th>工具名</th><th>描述</th><th>参数</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="page" id="page-sandbox">
+                <div class="chart-container">
+                    <div class="chart-title">沙盒文件系统</div>
+                    <div id="sandboxTree" style="font-family:monospace;font-size:14px;line-height:2"></div>
+                </div>
+            </div>
+
+            <div class="page" id="page-tasks">
+                <div class="chart-container">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                        <div class="chart-title">定时任务管理</div>
+                        <button class="btn btn-primary btn-sm" onclick="showTaskForm()">+ 新建任务</button>
+                    </div>
+                    <table class="data-table" id="tasksTable">
+                        <thead><tr><th>任务名</th><th>表达式</th><th>工具</th><th>状态</th><th>执行次数</th><th>操作</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="page" id="page-files">
+                <div class="chart-container">
+                    <div style="display:flex;gap:12px;margin-bottom:16px">
+                        <input type="text" id="fsPath" class="chat-input" style="flex:1" placeholder="输入路径，如 . 或 C:\" value=".">
+                        <button class="btn btn-primary" onclick="browseFs()">浏览</button>
+                        <button class="btn btn-primary" onclick="searchFs()">搜索</button>
+                    </div>
+                    <div id="fsContent" style="font-family:monospace;font-size:13px;line-height:2;max-height:600px;overflow-y:auto"></div>
+                </div>
+            </div>
+
+            <div class="page" id="page-utils">
+                <div class="config-grid">
+                    <div class="config-section">
+                        <h3>🔐 编码工具</h3>
+                        <div class="form-group">
+                            <label>Base64 编码</label>
+                            <input type="text" id="utilsB64Text" placeholder="输入文本">
+                            <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="callTool('encode_base64', {text: document.getElementById('utilsB64Text').value})">编码</button>
+                        </div>
+                        <div class="form-group">
+                            <label>Base64 解码</label>
+                            <input type="text" id="utilsB64Decode" placeholder="输入Base64">
+                            <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="callTool('decode_base64', {text: document.getElementById('utilsB64Decode').value})">解码</button>
+                        </div>
+                        <div class="form-group">
+                            <label>文本哈希</label>
+                            <input type="text" id="utilsHashText" placeholder="输入文本">
+                            <select id="utilsHashAlgo" style="margin-top:8px">
+                                <option value="md5">MD5</option>
+                                <option value="sha1">SHA1</option>
+                                <option value="sha256">SHA256</option>
+                            </select>
+                            <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="callTool('hash_text', {text: document.getElementById('utilsHashText').value, algorithm: document.getElementById('utilsHashAlgo').value})">计算</button>
+                        </div>
+                    </div>
+                    <div class="config-section">
+                        <h3>🌐 网络工具</h3>
+                        <div class="form-group">
+                            <label>Ping 测试</label>
+                            <input type="text" id="utilsPingHost" placeholder="8.8.8.8" value="8.8.8.8">
+                            <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="callTool('network_ping', {host: document.getElementById('utilsPingHost').value})">Ping</button>
+                        </div>
+                        <div class="form-group">
+                            <label>URL 解析</label>
+                            <input type="text" id="utilsUrl" placeholder="https://example.com">
+                            <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="callTool('url_parse', {url: document.getElementById('utilsUrl').value})">解析</button>
+                        </div>
+                        <div class="form-group">
+                            <label>生成二维码</label>
+                            <input type="text" id="utilsQrText" placeholder="输入内容">
+                            <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="callTool('generate_qrcode', {text: document.getElementById('utilsQrText').value})">生成</button>
+                            <div id="qrResult" style="margin-top:12px"></div>
+                        </div>
+                    </div>
+                    <div class="config-section">
+                        <h3>💻 系统进程</h3>
+                        <button class="btn btn-primary" style="margin-bottom:16px" onclick="loadProcesses()">刷新进程列表</button>
+                        <table class="data-table" id="processesTable">
+                            <thead><tr><th>PID</th><th>名称</th><th>CPU%</th><th>内存%</th><th>状态</th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="page" id="page-config">
+                <div class="config-grid">
+                    <div class="config-section">
+                        <h3>🔑 LLM 配置</h3>
+                        <div class="form-group">
+                            <label>API Key</label>
+                            <input type="password" id="cfgApiKey" placeholder="输入 API Key">
+                        </div>
+                        <div class="form-group">
+                            <label>Base URL</label>
+                            <input type="text" id="cfgBaseUrl" placeholder="https://api.openai.com/v1">
+                        </div>
+                        <div class="form-group">
+                            <label>模型</label>
+                            <select id="cfgModel"><option value="">-- 选择模型 --</option></select>
+                            <button class="btn btn-sm btn-primary" style="margin-top:8px" onclick="fetchModels()">获取可用模型</button>
+                        </div>
+                        <div class="form-group">
+                            <label>Temperature</label>
+                            <input type="number" id="cfgTemp" min="0" max="2" step="0.1" value="0.3">
+                        </div>
+                        <button class="btn btn-primary" onclick="saveConfig()">保存配置</button>
+                    </div>
+                    <div class="config-section">
+                        <h3>系统配置</h3>
+                        <div class="form-group"><label>自定义工具目录</label><input type="text" id="cfgToolsDir" placeholder="/path/to/tools"></div>
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+                            <span>沙盒隔离</span><div class="toggle active" id="toggleSandbox" onclick="toggleConfig('sandbox_enabled')"></div>
+                        </div>
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+                            <span>语言表达学习</span><div class="toggle active" id="toggleLearning" onclick="toggleConfig('learning_enabled')"></div>
+                        </div>
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+                            <span>定时任务</span><div class="toggle active" id="toggleTasks" onclick="toggleConfig('scheduled_tasks_enabled')"></div>
+                        </div>
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+                            <span>心跳监控</span><div class="toggle active" id="toggleHeartbeat" onclick="toggleConfig('heartbeat_enabled')"></div>
+                        </div>
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+                            <span>浏览器控制</span><div class="toggle" id="toggleBrowser" onclick="toggleConfig('browser_enabled')"></div>
+                        </div>
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+                            <span>系统命令执行</span><div class="toggle" id="toggleSystem" onclick="toggleConfig('system_control_enabled')"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        let currentSessionId = null;
+        let ws = null;
+
+        async function init() {
+            await checkHealth();
+            await loadDashboard();
+            await loadConfig();
+            connectWebSocket();
+            setInterval(updateHeartbeat, 5000);
+        }
+
+        function showPage(page) {
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            document.getElementById('page-' + page).classList.add('active');
+            event.currentTarget.classList.add('active');
+            document.getElementById('pageTitle').textContent = {
+                dashboard: '仪表盘', chat: '对话', sessions: '会话',
+                tools: '工具', sandbox: '沙盒', tasks: '定时任务', config: '配置'
+            }[page];
+            if (page === 'sessions') loadSessions();
+            if (page === 'tools') loadTools();
+            if (page === 'sandbox') loadSandbox();
+            if (page === 'tasks') loadTasks();
+            if (page === 'chat') loadChatSessions();
+        }
+
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('expanded');
+        }
+
+        async function checkHealth() {
+            const dot = document.getElementById('statusDot');
+            const text = document.getElementById('statusText');
+            const modelInfo = document.getElementById('modelInfo');
+
+            if (!dot || !text) {
+                console.error('状态元素未找到');
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_BASE}/api/health`, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                });
+
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}`);
+                }
+
+                const data = await res.json();
+
+                if (data.llm_mode === 'real') {
+                    dot.className = 'status-dot online';
+                    text.textContent = '在线';
+                } else {
+                    dot.className = 'status-dot simulated';
+                    text.textContent = '模拟模式';
+                }
+
+                if (modelInfo) {
+                    modelInfo.textContent = data.model || '';
+                }
+            } catch (e) {
+                console.error('健康检查失败:', e);
+                dot.className = 'status-dot offline';
+                text.textContent = '离线';
+                if (modelInfo) modelInfo.textContent = '';
+            }
+        }
+
+        async function loadDashboard() {
+            try {
+                const [health, memory, learning, tasks, heartbeat] = await Promise.all([
+                    fetch(`${API_BASE}/api/health`).then(r => r.json()),
+                    fetch(`${API_BASE}/api/memory`).then(r => r.json()),
+                    fetch(`${API_BASE}/api/learning`).then(r => r.json()),
+                    fetch(`${API_BASE}/api/tasks`).then(r => r.json()),
+                    fetch(`${API_BASE}/api/heartbeat`).then(r => r.json().catch(() => ({})))
+                ]);
+                document.getElementById('dashSessions').textContent = health.sessions;
+                document.getElementById('dashTools').textContent = health.tools;
+                document.getElementById('dashMemory').textContent = memory.length;
+                document.getElementById('dashLearning').textContent = learning.total_patterns;
+                if (heartbeat.cpu_percent !== undefined) {
+                    document.getElementById('cpuUsage').textContent = heartbeat.cpu_percent + '%';
+                    document.getElementById('memUsage').textContent = heartbeat.memory?.percent + '%';
+                    document.getElementById('diskUsage').textContent = Math.round(heartbeat.disk?.percent) + '%';
+                }
+                const tbody = document.querySelector('#dashTasksTable tbody');
+                tbody.innerHTML = tasks.slice(0, 5).map(t => `
+                    <tr><td>${t.name}</td><td>${t.cron}</td>
+                    <td><span class="badge ${t.enabled ? 'badge-success' : 'badge-warning'}">${t.enabled ? '启用' : '禁用'}</span></td>
+                    <td>${t.run_count}</td></tr>
+                `).join('');
+            } catch (e) { console.error('加载仪表盘失败', e); }
+        }
+
+        async function updateHeartbeat() {
+            try {
+                const res = await fetch(`${API_BASE}/api/heartbeat`);
+                const data = await res.json();
+                if (data.cpu_percent !== undefined) {
+                    document.getElementById('cpuUsage').textContent = data.cpu_percent + '%';
+                    document.getElementById('memUsage').textContent = data.memory?.percent + '%';
+                    document.getElementById('diskUsage').textContent = Math.round(data.disk?.percent) + '%';
+                }
+            } catch (e) {}
+        }
+
+        async function loadChatSessions() {
+            try {
+                const res = await fetch(`${API_BASE}/api/sessions`);
+                const sessions = await res.json();
+                const list = document.getElementById('chatSessionList');
+                list.innerHTML = sessions.map(s => `
+                    <div style="padding:10px 12px;border-radius:8px;cursor:pointer;margin-bottom:4px;${s.session_id===currentSessionId?'background:var(--surface-hover);border-left:3px solid var(--accent)':''}"
+                         onclick="switchChat('${s.session_id}')">
+                        <div style="font-size:13px">${s.session_id.slice(0, 8)}...</div>
+                        <div style="font-size:11px;color:var(--text-secondary)">${s.message_count} 条消息</div>
+                    </div>
+                `).join('');
+            } catch (e) {}
+        }
+
+        function newChat() {
+            currentSessionId = 'sess_' + Math.random().toString(36).substr(2, 9);
+            document.getElementById('chatMessages').innerHTML = '';
+            loadChatSessions();
+        }
+
+        async function switchChat(id) {
+            currentSessionId = id;
+            loadChatSessions();
+            try {
+                const res = await fetch(`${API_BASE}/api/sessions/${id}/messages`);
+                const data = await res.json();
+                const container = document.getElementById('chatMessages');
+                container.innerHTML = '';
+                data.messages.forEach(m => appendMessage(m.role, m.content));
+            } catch (e) {}
+        }
+
+        async function sendChat() {
+            const input = document.getElementById('chatInput');
+            const text = input.value.trim();
+            if (!text) return;
+            input.value = '';
+            appendMessage('user', text);
+            try {
+                const res = await fetch(`${API_BASE}/api/chat`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: text, session_id: currentSessionId })
+                });
+                const data = await res.json();
+                appendMessage('assistant', data.reply);
+                currentSessionId = data.session_id;
+            } catch (e) { appendMessage('assistant', '错误: ' + e.message); }
+        }
+
+        function appendMessage(role, content) {
+            const container = document.getElementById('chatMessages');
+            const div = document.createElement('div');
+            div.className = 'message ' + role;
+            div.innerHTML = `<div class="meta">${role === 'user' ? '你' : 'Agent'} · ${new Date().toLocaleTimeString()}</div><div>${content.replace(/\n/g, '<br>')}</div>`;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        document.getElementById('chatInput').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+        });
+
+        async function loadSessions() {
+            try {
+                const res = await fetch(`${API_BASE}/api/sessions`);
+                const sessions = await res.json();
+                const tbody = document.querySelector('#sessionsTable tbody');
+                tbody.innerHTML = sessions.map(s => `
+                    <tr><td>${s.session_id.slice(0, 12)}...</td><td>${s.message_count}</td>
+                    <td>${s.memory_keys.length}</td><td>${s.file_count}</td>
+                    <td>${new Date(s.created_at).toLocaleString()}</td>
+                    <td><button class="btn btn-danger btn-sm" onclick="deleteSession('${s.session_id}')">删除</button></td></tr>
+                `).join('');
+            } catch (e) {}
+        }
+
+        async function deleteSession(id) {
+            if (!confirm('确定删除？')) return;
+            await fetch(`${API_BASE}/api/sessions/${id}`, { method: 'DELETE' });
+            loadSessions();
+        }
+
+        async function loadTools() {
+            try {
+                const res = await fetch(`${API_BASE}/api/tools`);
+                const tools = await res.json();
+                const tbody = document.querySelector('#toolsTable tbody');
+                tbody.innerHTML = tools.map(t => `
+                    <tr><td><span style="color:var(--accent);font-weight:500">${t.name}</span></td>
+                    <td>${t.description}</td>
+                    <td>${Object.keys(t.parameters.properties || {}).join(', ') || '无'}</td></tr>
+                `).join('');
+            } catch (e) {}
+        }
+
+        async function loadSandbox() {
+            try {
+                const res = await fetch(`${API_BASE}/api/sandbox`);
+                const files = await res.json();
+                const container = document.getElementById('sandboxTree');
+                container.innerHTML = files.map(f => `
+                    <div style="padding-left:${f.path.split('/').length * 20}px">
+                        ${f.type === 'dir' ? '📁' : '📄'} ${f.name} ${f.size ? '(' + f.size + ' bytes)' : ''}
+                    </div>
+                `).join('') || '<div style="color:var(--text-secondary)">沙盒为空</div>';
+            } catch (e) {}
+        }
+
+        async function loadTasks() {
+            try {
+                const res = await fetch(`${API_BASE}/api/tasks`);
+                const tasks = await res.json();
+                const tbody = document.querySelector('#tasksTable tbody');
+                tbody.innerHTML = tasks.map(t => `
+                    <tr><td>${t.name}</td><td>${t.cron}</td><td>${t.tool_name}</td>
+                    <td><span class="badge ${t.enabled ? 'badge-success' : 'badge-warning'}">${t.enabled ? '启用' : '禁用'}</span></td>
+                    <td>${t.run_count}</td>
+                    <td><button class="btn btn-sm btn-primary" onclick="toggleTask('${t.task_id}')">${t.enabled ? '禁用' : '启用'}</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteTask('${t.task_id}')">删除</button></td></tr>
+                `).join('');
+            } catch (e) {}
+        }
+
+        async function toggleTask(id) {
+            await fetch(`${API_BASE}/api/tasks/${id}/toggle`, { method: 'POST' });
+            loadTasks();
+        }
+
+        async function deleteTask(id) {
+            if (!confirm('确定删除？')) return;
+            await fetch(`${API_BASE}/api/tasks/${id}`, { method: 'DELETE' });
+            loadTasks();
+        }
+
+        async function loadConfig() {
+            try {
+                const res = await fetch(`${API_BASE}/api/config`);
+                const cfg = await res.json();
+                document.getElementById('cfgBaseUrl').value = cfg.base_url || '';
+                document.getElementById('cfgModel').value = cfg.model || '';
+                document.getElementById('cfgTemp').value = cfg.temperature || 0.3;
+                document.getElementById('cfgToolsDir').value = cfg.custom_tools_dir || '';
+                updateToggle('toggleSandbox', cfg.sandbox_enabled);
+                updateToggle('toggleLearning', cfg.learning_enabled);
+                updateToggle('toggleTasks', cfg.scheduled_tasks_enabled);
+                updateToggle('toggleHeartbeat', cfg.heartbeat_enabled);
+                updateToggle('toggleBrowser', cfg.browser_enabled);
+                updateToggle('toggleSystem', cfg.system_control_enabled);
+            } catch (e) {}
+        }
+
+        function updateToggle(id, enabled) {
+            const el = document.getElementById(id);
+            if (enabled) el.classList.add('active'); else el.classList.remove('active');
+        }
+
+        async function fetchModels() {
+            const btn = event.target;
+            btn.textContent = '获取中...';
+            try {
+                const res = await fetch(`${API_BASE}/api/config/models`);
+                const data = await res.json();
+                const select = document.getElementById('cfgModel');
+                select.innerHTML = '<option value="">-- 选择模型 --</option>' +
+                    data.models.map(m => `<option value="${m.id}">${m.id}</option>`).join('');
+                btn.textContent = '获取完成';
+            } catch (e) { btn.textContent = '获取失败'; }
+            setTimeout(() => btn.textContent = '获取可用模型', 2000);
+        }
+
+        async function saveConfig() {
+            const updates = {
+                api_key: document.getElementById('cfgApiKey').value,
+                base_url: document.getElementById('cfgBaseUrl').value,
+                model: document.getElementById('cfgModel').value,
+                temperature: parseFloat(document.getElementById('cfgTemp').value),
+                custom_tools_dir: document.getElementById('cfgToolsDir').value
+            };
+            try {
+                const res = await fetch(`${API_BASE}/api/config`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(updates)
+                });
+                const data = await res.json();
+                alert(data.success ? '配置已保存' : '保存失败');
+                checkHealth();
+            } catch (e) { alert('保存失败: ' + e.message); }
+        }
+
+        async function toggleConfig(key) {
+            const el = document.getElementById(event.target.id);
+            const enabled = !el.classList.contains('active');
+            try {
+                const res = await fetch(`${API_BASE}/api/config`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ [key]: enabled })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    if (enabled) el.classList.add('active'); else el.classList.remove('active');
+                }
+            } catch (e) {}
+        }
+
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+            ws.onopen = () => console.log('WebSocket connected');
+            ws.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                if (msg.type === 'chat_response') appendMessage('assistant', msg.data.reply);
+            };
+            ws.onclose = () => setTimeout(connectWebSocket, 3000);
+        }
+
+
+        // 文件系统浏览
+        async function browseFs() {
+            const path = document.getElementById('fsPath').value || '.';
+            try {
+                const res = await fetch(`${API_BASE}/api/fs/browse?path=${encodeURIComponent(path)}`);
+                const data = await res.json();
+                renderFs(data);
+            } catch (e) {
+                document.getElementById('fsContent').innerHTML = '<span style="color:var(--error)">加载失败: ' + e.message + '</span>';
+            }
+        }
+
+        function renderFs(data) {
+            const container = document.getElementById('fsContent');
+            if (!data.success) {
+                container.innerHTML = '<span style="color:var(--error)">错误: ' + data.error + '</span>';
+                return;
+            }
+            if (data.type === 'file') {
+                container.innerHTML = '<div>📄 <b>' + data.name + '</b> (' + data.size + ' bytes)</div>';
+                return;
+            }
+            let html = '<div style="margin-bottom:8px"><b>📁 ' + data.path + '</b> (' + data.count + ' 项)</div>';
+            html += '<div style="display:grid;grid-template-columns:30px 1fr 100px 180px;gap:8px;padding:8px;background:var(--bg);border-radius:8px;margin-bottom:4px">';
+            html += '<span></span><span style="color:var(--text-secondary)">名称</span><span style="color:var(--text-secondary)">大小</span><span style="color:var(--text-secondary)">修改时间</span></div>';
+            for (const item of data.items) {
+                const icon = item.type === 'dir' ? '📁' : '📄';
+                const size = item.type === 'dir' ? '-' : formatBytes(item.size);
+                const time = item.modified ? new Date(item.modified * 1000).toLocaleString() : '-';
+                const clickable = item.type === 'dir' ? 'cursor:pointer;color:var(--accent)' : 'cursor:pointer';
+                html += '<div style="display:grid;grid-template-columns:30px 1fr 100px 180px;gap:8px;padding:6px 8px;border-bottom:1px solid var(--border)" ';
+                html += 'onclick="' + (item.type === 'dir' ? 'document.getElementById('fsPath').value='' + item.path + '';browseFs()' : 'readFile('' + item.path + '')') + '">';
+                html += '<span>' + icon + '</span><span style="' + clickable + '">' + item.name + '</span>';
+                html += '<span>' + size + '</span><span style="color:var(--text-secondary);font-size:12px">' + time + '</span></div>';
+            }
+            container.innerHTML = html;
+        }
+
+        async function readFile(path) {
+            try {
+                const res = await fetch(`${API_BASE}/api/fs/read?path=${encodeURIComponent(path)}&max_size=10000`);
+                const data = await res.json();
+                const container = document.getElementById('fsContent');
+                if (data.success) {
+                    container.innerHTML = '<div style="margin-bottom:8px"><b>📄 ' + data.name + '</b> (' + formatBytes(data.size) + ')</div>';
+                    container.innerHTML += '<pre style="background:var(--bg);padding:16px;border-radius:8px;overflow-x:auto;max-height:500px;white-space:pre-wrap;word-break:break-all">' + escapeHtml(data.content) + '</pre>';
+                    if (data.truncated) {
+                        container.innerHTML += '<div style="color:var(--warning);font-size:12px;margin-top:8px">' + data.note + '</div>';
+                    }
+                } else {
+                    container.innerHTML = '<span style="color:var(--error)">读取失败: ' + data.error + '</span>';
+                }
+            } catch (e) {
+                document.getElementById('fsContent').innerHTML = '<span style="color:var(--error)">读取失败: ' + e.message + '</span>';
+            }
+        }
+
+        async function searchFs() {
+            const pattern = prompt('输入搜索关键词:');
+            if (!pattern) return;
+            const path = document.getElementById('fsPath').value || '.';
+            try {
+                const res = await fetch(`${API_BASE}/api/fs/search?pattern=${encodeURIComponent(pattern)}&root=${encodeURIComponent(path)}`);
+                const data = await res.json();
+                const container = document.getElementById('fsContent');
+                if (data.success) {
+                    let html = '<div style="margin-bottom:8px"><b>🔍 搜索 "' + data.pattern + '"</b> (' + data.count + ' 个结果)</div>';
+                    for (const item of data.results) {
+                        const icon = item.type === 'dir' ? '📁' : '📄';
+                        html += '<div style="padding:4px 0">' + icon + ' <span style="cursor:pointer;color:var(--accent)" onclick="document.getElementById('fsPath').value='' + item.path + '';browseFs()">' + item.name + '</span> <span style="color:var(--text-secondary);font-size:12px">' + item.path + '</span></div>';
+                    }
+                    if (data.truncated) html += '<div style="color:var(--warning);font-size:12px">结果过多，仅显示前 ' + data.results.length + ' 个</div>';
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<span style="color:var(--error)">搜索失败: ' + data.error + '</span>';
+                }
+            } catch (e) {
+                document.getElementById('fsContent').innerHTML = '<span style="color:var(--error)">搜索失败: ' + e.message + '</span>';
+            }
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // 实用工具
+        async function callTool(toolName, args) {
+            try {
+                const res = await fetch(`${API_BASE}/api/chat`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: JSON.stringify({tool: toolName, args: args}), session_id: currentSessionId })
+                });
+                const data = await res.json();
+                alert(data.reply);
+            } catch (e) {
+                alert('执行失败: ' + e.message);
+            }
+        }
+
+        async function loadProcesses() {
+            try {
+                const res = await fetch(`${API_BASE}/api/system/processes`);
+                const data = await res.json();
+                const tbody = document.querySelector('#processesTable tbody');
+                tbody.innerHTML = data.processes.map(p => `
+                    <tr><td>${p.pid}</td><td>${p.name}</td><td>${(p.cpu_percent || 0).toFixed(1)}%</td>
+                    <td>${(p.memory_percent || 0).toFixed(1)}%</td><td>${p.status}</td></tr>
+                `).join('');
+            } catch (e) { console.error('加载进程失败', e); }
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
+    try {
+        await init();
+    } catch (e) {
+        console.error('初始化失败:', e);
+        const statusText = document.getElementById('statusText');
+        const statusDot = document.getElementById('statusDot');
+        if (statusText) statusText.textContent = '初始化失败: ' + e.message;
+        if (statusDot) statusDot.className = 'status-dot offline';
+    }
+});
+    </script>
+</body>
+</html>
